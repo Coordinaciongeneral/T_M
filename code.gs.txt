@@ -1,0 +1,122 @@
+function doPost(e) {
+  const datos = JSON.parse(e.postData.contents);
+  const accion = datos.accion;
+
+  if (accion === "validarUsuario") {
+    const valido = validarUsuario(datos.usuario, datos.contra);
+    return ContentService.createTextOutput(JSON.stringify({ valido }))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (accion === "obtenerNombres") {
+    const nombres = obtenerNombresPorEscuela(datos.escuela);
+    return ContentService.createTextOutput(JSON.stringify({ nombres }))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (accion === "guardarRespuestas") {
+    guardarEvaluacionCompleta(datos.usuario, datos.escuela, datos.nombre, datos.respuestas);
+    return ContentService.createTextOutput(JSON.stringify({ estado: "ok" }))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({ error: "Acción no válida" }))
+                       .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('index')
+    .setTitle("Evaluación Supera")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function validarUsuario(user, pass) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Usuarios");
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === user && data[i][1] === pass) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function pruebaGuardar() {
+  const respuestasDummy = {
+    s1q1: "a",
+    s1q2: "b",
+    s1q3: "c",
+    s2q1: "d"
+    // ... puedes agregar más si quieres
+  };
+
+  guardarEvaluacionCompleta("testuser", "Escuela 1", "Nombre Prueba", respuestasDummy);
+}
+
+function obtenerNombresPorEscuela(escuela) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Nombres");
+  const data = sheet.getDataRange().getValues();
+  const nombres = data.filter(row => row[0] === escuela).map(row => row[1]);
+  return nombres;
+}
+
+function guardarEvaluacionCompleta(usuario, escuela, nombre, respuestasTotales) {
+  Logger.log("Usuario: " + usuario);
+  Logger.log("Escuela: " + escuela);
+  Logger.log("Nombre: " + nombre);
+  Logger.log("RespuestasTotales: " + JSON.stringify(respuestasTotales));
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("Preguntas");
+  if (!sheet) {
+    sheet = ss.insertSheet("Preguntas");
+  }
+
+  // Encabezados base + todas las preguntas de todas las series
+const totalPreguntasPorSerie = [16,11,30,18,12,20,20,17,18,11];
+let encabezados = [];
+
+if (sheet.getLastRow() === 0 || sheet.getLastColumn() === 0) {
+  // Si la hoja está vacía, crea los encabezados
+  encabezados = ["Usuario", "Escuela", "Nombre", "Timestamp"];
+  for (let s = 0; s < totalPreguntasPorSerie.length; s++) {
+    for (let q = 1; q <= totalPreguntasPorSerie[s]; q++) {
+      encabezados.push(`Pregunta ${q} Serie ${s+1}`);
+    }
+  }
+  sheet.appendRow(encabezados);
+} else {
+  // Si ya hay encabezados, los leemos de la hoja
+  encabezados = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+}
+
+
+  // Eliminar fila anterior si existe (para ese usuario)
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === usuario) {
+      sheet.deleteRow(i + 1);
+      break;
+    }
+  }
+
+  // Construir fila con respuestas (rellenar con "" si falta alguna)
+  const fila = [
+    usuario,
+    escuela,
+    nombre,
+    new Date()
+  ];
+
+  for (let s = 0; s < totalPreguntasPorSerie.length; s++) {
+    for (let q = 1; q <= totalPreguntasPorSerie[s]; q++) {
+      let key = `s${s+1}q${q}`;
+      fila.push(respuestasTotales[key] || "");
+    }
+  }
+
+  sheet.appendRow(fila);
+
+  return true;
+}
+
